@@ -1,11 +1,11 @@
 # Remontee automatique des annonces 1parrainage.com
-# Heures en UTC : 7h07 UTC = 8h07 a Paris l'hiver (9h07 l'ete).
+# Heures en UTC : 8h30 UTC = 9h30 a Paris l'hiver (10h30 l'ete).
 name: Remontee 1parrainage
 
 on:
   schedule:
-    - cron: "7 7 * * *"     # 8h07 Paris  -> remontee gratuite n°1
-    - cron: "7 17 * * *"    # 18h07 Paris -> remontee gratuite n°2
+    - cron: "30 8 * * *"    # 9h30 Paris  -> remontee gratuite n°1
+    - cron: "30 14 * * *"   # 15h30 Paris -> remontee gratuite n°2
     # Compte Premium uniquement : enlevez le # des 3 lignes suivantes
     # - cron: "7 10 * * *"  # 11h07 Paris -> bouton magique
     # - cron: "7 13 * * *"  # 14h07 Paris -> bouton magique
@@ -161,24 +161,66 @@ jobs:
               return hrefs
 
 
+          RX_OK = re.compile(r"enregistr|valid|modifi|[àa] jour|sauv|publi|remont|envoy|confirm|soumettre|update|save|submit|^\s*ok\s*$", re.I)
+          RX_BAD = re.compile(r"supprim|annul|delete|retour|d[ée]connex|recherch|search|connexion|newsletter|cookie|refus|accept", re.I)
+          diag_done = False
+
+
+          def label_of(el):
+              try:
+                  return " ".join(filter(None, [
+                      el.inner_text(timeout=2000) if el.evaluate("e => e.tagName") != "INPUT" else "",
+                      el.get_attribute("value"), el.get_attribute("title"),
+                      el.get_attribute("aria-label"), el.get_attribute("name"),
+                      el.get_attribute("id"), el.get_attribute("class")])).strip()
+              except Exception:
+                  return ""
+
+
           def submit_edit(page):
-              rx_ok = re.compile(r"enregistrer|valider|modifier|mettre [àa] jour|sauvegarder|publier|remonter", re.I)
-              rx_bad = re.compile(r"supprim|annuler|delete", re.I)
-              cands = page.locator("button[type=submit], input[type=submit], button:not([type])")
+              global diag_done
+              sel = ("button, input[type=submit], input[type=button], input[type=image], "
+                     "a.btn, a.button, [role=button]")
+              cands = page.locator(sel)
+              labels = []
               best = None
               for i in range(cands.count()):
                   b = cands.nth(i)
-                  if not b.is_visible():
+                  try:
+                      if not b.is_visible():
+                          continue
+                  except Exception:
                       continue
-                  label = (b.inner_text() if b.evaluate("e => e.tagName") == "BUTTON" else b.get_attribute("value")) or ""
-                  if rx_bad.search(label):
-                      continue
-                  if rx_ok.search(label):
+                  label = label_of(b)
+                  labels.append(label[:60])
+                  if best is None and label and not RX_BAD.search(label) and RX_OK.search(label):
                       best = b
-                      break
-              if not best:
-                  return False
-              best.click()
+              if not diag_done:
+                  diag_done = True
+                  print("  Boutons vus sur la page :", " | ".join(labels) or "aucun")
+              if best is not None:
+                  print("  -> clic sur :", label_of(best)[:60])
+                  best.click()
+              else:
+                  # Repli : envoyer le formulaire principal de la page (celui qui a le plus de champs)
+                  idx = page.evaluate("""() => {
+                      const bad = /supprim|delete|recherche|search|login|connexion|logout|newsletter/i;
+                      let best = -1, max = 0;
+                      document.querySelectorAll('form').forEach((f, i) => {
+                          if (bad.test((f.action || '') + ' ' + (f.id || '') + ' ' + (f.className || ''))) return;
+                          const n = f.querySelectorAll('input:not([type=hidden]), textarea, select').length;
+                          if (n > max) { max = n; best = i; }
+                      });
+                      return max >= 2 ? best : -1;
+                  }""")
+                  if idx < 0:
+                      return False
+                  print("  -> envoi direct du formulaire principal")
+                  page.evaluate("""(i) => {
+                      const f = document.querySelectorAll('form')[i];
+                      const s = f.querySelector('button[type=submit], input[type=submit], button:not([type])');
+                      if (f.requestSubmit) f.requestSubmit(s || undefined); else f.submit();
+                  }""", idx)
               settle(page)
               page.wait_for_timeout(1500)
               return True
