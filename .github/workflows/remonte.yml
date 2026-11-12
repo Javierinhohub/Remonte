@@ -1,0 +1,248 @@
+# Remontee automatique des annonces 1parrainage.com
+# Heures en UTC : 7h07 UTC = 8h07 a Paris l'hiver (9h07 l'ete).
+name: Remontee 1parrainage
+
+on:
+  schedule:
+    - cron: "7 7 * * *"     # 8h07 Paris  -> remontee gratuite n°1
+    - cron: "7 17 * * *"    # 18h07 Paris -> remontee gratuite n°2
+    # Compte Premium uniquement : enlevez le # des 3 lignes suivantes
+    # - cron: "7 10 * * *"  # 11h07 Paris -> bouton magique
+    # - cron: "7 13 * * *"  # 14h07 Paris -> bouton magique
+    # - cron: "7 20 * * *"  # 21h07 Paris -> bouton magique
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "manuel (2 gratuites/jour) ou premium (bouton magique)"
+        default: manuel
+        type: choice
+        options: [manuel, premium]
+
+jobs:
+  remonter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Installer le navigateur
+        run: pip install playwright && python -m playwright install --with-deps chromium
+      - name: Remonter les annonces
+        env:
+          P_EMAIL: ${{ secrets.P_EMAIL }}
+          P_PASSWORD: ${{ secrets.P_PASSWORD }}
+          MODE: ${{ github.event.inputs.mode || (contains(fromJSON('["7 10 * * *","7 13 * * *","7 20 * * *"]'), github.event.schedule) && 'premium' || 'manuel') }}
+        run: |
+          cat > remontee.py <<'PYEOF'
+          import os, re, sys
+          from urllib.parse import urljoin
+          from playwright.sync_api import sync_playwright
+
+          BASE = os.environ.get("P_BASE", "https://www.1parrainage.com/")
+          EMAIL = os.environ.get("P_EMAIL", "")
+          PASSWORD = os.environ.get("P_PASSWORD", "")
+          MODE = os.environ.get("MODE", "manuel")  # manuel | premium
+          SHOTS = "captures"
+          os.makedirs(SHOTS, exist_ok=True)
+          step = 0
+
+
+          def shot(page, name):
+              global step
+              step += 1
+              try:
+                  page.screenshot(path=f"{SHOTS}/{step:02d}_{name}.png", full_page=True)
+              except Exception as e:
+                  print("capture impossible:", e)
+
+
+          def settle(page):
+              try:
+                  page.wait_for_load_state("networkidle", timeout=15000)
+              except Exception:
+                  pass
+
+
+          def click_first(page, patterns, roles=("link", "button")):
+              for pat in patterns:
+                  rx = re.compile(pat, re.I)
+                  for role in roles:
+                      loc = page.get_by_role(role, name=rx)
+                      for i in range(loc.count()):
+                          el = loc.nth(i)
+                          if el.is_visible():
+                              el.click()
+                              settle(page)
+                              return True
+              return False
+
+
+          def refuse_cookies(page):
+              # Choix le plus respectueux de la vie privee
+              click_first(page, [r"continuer sans accepter", r"tout refuser", r"^refuser",
+                                 r"je refuse", r"fermer"], roles=("button", "link"))
+
+
+          def password_field(page):
+              loc = page.locator("input[type=password]")
+              for i in range(loc.count()):
+                  if loc.nth(i).is_visible():
+                      return loc.nth(i)
+              return None
+
+
+          def login(page):
+              page.goto(BASE)
+              settle(page)
+              refuse_cookies(page)
+              shot(page, "accueil")
+              if not password_field(page):
+                  click_first(page, [r"se connecter", r"connexion", r"me connecter",
+                                     r"espace parrain", r"mon compte", r"mon espace"])
+                  refuse_cookies(page)
+              pw = password_field(page)
+              if not pw:
+                  shot(page, "pas_de_formulaire")
+                  sys.exit("ECHEC : formulaire de connexion introuvable (voir captures).")
+              form = pw.locator("xpath=ancestor::form[1]")
+              scope = form if form.count() else page
+              user = scope.locator("input[type=email], input[type=text]")
+              filled = False
+              for i in range(user.count()):
+                  if user.nth(i).is_visible():
+                      user.nth(i).fill(EMAIL)
+                      filled = True
+                      break
+              if not filled:
+                  sys.exit("ECHEC : champ e-mail/pseudo introuvable.")
+              pw.fill(PASSWORD)
+              shot(page, "formulaire_rempli")
+              pw.press("Enter")
+              settle(page)
+              page.wait_for_timeout(2000)
+              shot(page, "apres_connexion")
+              if password_field(page) and not page.get_by_text(re.compile(r"d[ée]connexion", re.I)).count():
+                  sys.exit("ECHEC : connexion refusee (identifiants, captcha ?). Voir captures.")
+              print("Connecte.")
+
+
+          def open_account(page):
+              if not click_first(page, [r"espace parrain", r"mes annonces", r"mon espace",
+                                        r"mon compte", r"tableau de bord"]):
+                  shot(page, "espace_introuvable")
+                  sys.exit("ECHEC : lien vers l'espace parrain introuvable.")
+              refuse_cookies(page)
+              # Si une page intermediaire existe, aller sur la liste des annonces
+              click_first(page, [r"^mes annonces", r"g[ée]rer mes annonces"])
+              shot(page, "espace_parrain")
+              return page.url
+
+
+          def edit_links(page):
+              hrefs = []
+              rx = re.compile(r"modifier|[ée]diter", re.I)
+              links = page.locator("a")
+              for i in range(links.count()):
+                  a = links.nth(i)
+                  try:
+                      href = a.get_attribute("href") or ""
+                      label = (a.inner_text() or "") + " " + (a.get_attribute("title") or "")
+                  except Exception:
+                      continue
+                  if not href or href.startswith(("javascript", "#", "mailto")):
+                      continue
+                  if re.search(r"supprim|delete|profil|password|mot.?de.?passe|photo", href + label, re.I):
+                      continue
+                  if rx.search(label) or re.search(r"modif|edit", href, re.I):
+                      full = urljoin(page.url, href)
+                      if full not in hrefs:
+                          hrefs.append(full)
+              return hrefs
+
+
+          def submit_edit(page):
+              rx_ok = re.compile(r"enregistrer|valider|modifier|mettre [àa] jour|sauvegarder|publier|remonter", re.I)
+              rx_bad = re.compile(r"supprim|annuler|delete", re.I)
+              cands = page.locator("button[type=submit], input[type=submit], button:not([type])")
+              best = None
+              for i in range(cands.count()):
+                  b = cands.nth(i)
+                  if not b.is_visible():
+                      continue
+                  label = (b.inner_text() if b.evaluate("e => e.tagName") == "BUTTON" else b.get_attribute("value")) or ""
+                  if rx_bad.search(label):
+                      continue
+                  if rx_ok.search(label):
+                      best = b
+                      break
+              if not best:
+                  return False
+              best.click()
+              settle(page)
+              page.wait_for_timeout(1500)
+              return True
+
+
+          def manual_bump(page, account_url):
+              links = edit_links(page)
+              print(f"{len(links)} annonce(s) a remonter.")
+              if not links:
+                  sys.exit("ECHEC : aucun lien 'Modifier' trouve dans l'espace parrain.")
+              ok = 0
+              for n, url in enumerate(links, 1):
+                  page.goto(url)
+                  settle(page)
+                  if submit_edit(page):
+                      ok += 1
+                      msg = page.locator("body").inner_text()[:3000]
+                      alert = re.search(r"[^.\n]*(limite|d[ée]j[àa]|maximum|erreur)[^.\n]*", msg, re.I)
+                      print(f"Annonce {n} : enregistree." + (f" Message du site : {alert.group(0).strip()}" if alert else ""))
+                  else:
+                      print(f"Annonce {n} : bouton d'enregistrement introuvable ({url}).")
+                  shot(page, f"annonce_{n}")
+              print(f"Termine : {ok}/{len(links)} annonce(s) remontee(s).")
+              if ok == 0:
+                  sys.exit(1)
+
+
+          def premium_bump(page):
+              if click_first(page, [r"remonter toutes", r"tout remonter", r"remonter mes annonces",
+                                    r"bouton magique", r"remont"]):
+                  page.wait_for_timeout(1500)
+                  shot(page, "bouton_magique")
+                  print("Bouton Premium clique.")
+              else:
+                  sys.exit("ECHEC : bouton de remontee Premium introuvable (compte Premium ?).")
+
+
+          def main():
+              if not EMAIL or not PASSWORD:
+                  sys.exit("Secrets P_EMAIL / P_PASSWORD manquants.")
+              print("Mode :", MODE)
+              with sync_playwright() as p:
+                  browser = p.chromium.launch()
+                  page = browser.new_page(locale="fr-FR", viewport={"width": 1280, "height": 900})
+                  page.set_default_timeout(20000)
+                  try:
+                      login(page)
+                      account_url = open_account(page)
+                      if MODE == "premium":
+                          premium_bump(page)
+                      else:
+                          manual_bump(page, account_url)
+                  finally:
+                      browser.close()
+
+
+          if __name__ == "__main__":
+              main()
+          PYEOF
+          python remontee.py
+      - name: Garder les captures d'ecran
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: captures
+          path: captures/
+          retention-days: 7
