@@ -1,5 +1,4 @@
-# Publication + remontee automatique des annonces sur leparrain.com
-# Heures en UTC (+1h a Paris l'hiver) : 9h30, 12h30, 15h30, 19h30 a Paris.
+# Le Parrain : publication + remontee (9h30, 12h30, 15h30, 19h30 a Paris)
 name: Le Parrain
 
 on:
@@ -11,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       action:
-        description: "publier (1re fois), remonter, ou decouvrir"
+        description: "publier, remonter ou decouvrir"
         default: publier
         type: choice
         options: [publier, remonter, decouvrir]
@@ -21,59 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
       - name: Le Parrain
         env:
           LP_MCP_URL: ${{ secrets.LP_MCP_URL }}
           ACTION: ${{ github.event.inputs.action || 'remonter' }}
-        run: |
-          cat > leparrain.py <<'PYEOF'
-          import json, os, re, sys, urllib.request, urllib.error
-
-          URL = os.environ.get("LP_MCP_URL", "").strip()
-          ACTION = os.environ.get("ACTION", "remonter")  # decouvrir | publier | remonter
-
-          ANNONCES = [
-              {
-                  "marque": "RED by SFR",
-                  "titre": "Jusqu'à 15 € offerts sur ta 1ère facture RED by SFR",
-                  "code": "REDB483D8F",
-                  "lien": "https://www.red-by-sfr.fr/?codeP=REDB483D8F",
-                  "texte": """🎁 Jusqu'à 15 € offerts sur ta 1ère facture RED by SFR !
-
-          ✅ 15 € pour une RED Box (fibre) – 10 € pour un forfait mobile
-          ✅ Sans engagement, cumulable avec les promos en cours
-
-          👉 Comment en profiter (2 min) :
-          1. Clique sur mon lien : https://www.red-by-sfr.fr/?codeP=REDB483D8F
-          2. Ou saisis le code REDB483D8F au moment de souscrire
-          3. Choisis ton forfait ou ta box, c'est tout !
-
-          💬 Je réponds vite à toutes tes questions par la messagerie du site. N'hésite pas !""",
-              },
-              {
-                  "marque": "BoursoBank",
-                  "titre": "Jusqu'à 160 € offerts chez BoursoBank – ma prime va à une association",
-                  "code": "NAGA0360",
-                  "lien": "",
-                  "texte": """💚 Jusqu'à 160 € offerts chez BoursoBank… et ma prime part à une association !
-
-          Code parrain : NAGA0360
-
-          Éducateur, je reverse ma prime de parrain à une association.
-
-          👉 Comment faire :
-          1. Ouvre ton compte BoursoBank avec le code NAGA0360
-          2. Effectue ton 1er versement (il conditionne le montant de ta prime)
-          3. Reçois ta prime, et fais une bonne action au passage 🙏
-
-          💬 Une question ? Écris-moi, je réponds vite.""",
-              },
-              {
-                  "marque": "Hello bank",
-                  "titre": "Jusqu'à 330 € offerts chez Hello bank (offre flash jusqu'au 8 décembre)",
-                  "code": "",
-                  "lien": "",
-                  "texte": """🎁 Jusqu'à 330 € offerts chez Hello bank ! (offre flash jusqu'au 8 décembre)
-          💚 Et ma prime de parrain est reversée à une association !
-
-          ✅ 130 € en argent +
+        run: python3 leparrain.py
