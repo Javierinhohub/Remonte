@@ -78,6 +78,64 @@ Code parrain : NAGA0360
 
 💬 Une question sur Acheel ou sur l'assurance animaux ? Écris-moi, je réponds vite.""",
     },
+    {
+        "marque": "MaxiCoffee",
+        "cle": "maxicoffee",
+        "titre": "5 € offerts sur ta 1ère commande MaxiCoffee",
+        "code": "",
+        "lien": "https://www.maxicoffee.com/parrainage.php?parrain=I02101RI9D58V3w4bUo",
+        "texte": """☕ 5 € offerts sur ta 1ère commande MaxiCoffee !
+
+✅ Valable dès 50 € d'achat, sans code à saisir
+✅ Café en grains de qualité, expédition rapide et soignée
+
+👉 Comment en profiter :
+1. Clique sur mon lien : https://www.maxicoffee.com/parrainage.php?parrain=I02101RI9D58V3w4bUo
+2. Crée ton compte et passe ta 1ère commande (50 € minimum)
+3. Tes 5 € sont déduits automatiquement, c'est tout !
+
+💬 Une question sur un café ou une machine ? Écris-moi, je réponds vite.""",
+    },
+    {
+        "marque": "NordVPN",
+        "cle": "nord",
+        "titre": "Jusqu'à 3 mois offerts sur NordVPN",
+        "code": "",
+        "lien": "https://refer-nordvpn.com/NcfEELvYuQZ",
+        "texte": """🔒 Jusqu'à 3 MOIS OFFERTS sur NordVPN !
+
+✅ +3 mois gratuits avec un abonnement 1 ou 2 ans (+1 mois avec le mensuel)
+✅ Très simple : une appli, un bouton, et tu es protégé
+
+👉 Comment en profiter :
+1. Clique sur mon lien : https://refer-nordvpn.com/NcfEELvYuQZ
+2. Choisis ton abonnement sur le site NordVPN (pas via l'App Store)
+3. Les mois offerts s'ajoutent automatiquement à ton compte
+
+💡 Je l'utilise au quotidien, surtout en voyage et sur les wifi publics.
+
+💬 Une question ? Écris-moi, je réponds vite.""",
+    },
+    {
+        "marque": "Vinted",
+        "cle": "vinted",
+        "titre": "Rejoins Vinted avec mon lien et vide ton dressing",
+        "code": "",
+        "lien": "https://www.vinted.fr/invite/nassjavier/Y0khxyrMOJmCw4g0s9jx3kykw1rbzym6x",
+        "texte": """👗 Vide ton dressing et gagne de l'argent sur Vinted !
+
+✅ Inscription gratuite, 0 frais pour les vendeurs en France
+✅ Envoi ultra simple : étiquette prépayée, dépôt en point relais
+
+👉 Comment faire :
+1. Inscris-toi avec mon lien : https://www.vinted.fr/invite/nassjavier/Y0khxyrMOJmCw4g0s9jx3kykw1rbzym6x
+2. Publie tes 3 premiers articles dès la 1ère semaine (le meilleur moyen de vendre vite !)
+3. Partage tes annonces et enchaîne les ventes
+
+💡 Mes astuces : photos à la lumière du jour, prix un peu sous le marché, réponses rapides aux messages.
+
+💬 Besoin d'aide pour démarrer ? Écris-moi, je réponds vite.""",
+    },
 ]
 
 session = None
