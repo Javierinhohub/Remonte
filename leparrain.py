@@ -6,6 +6,7 @@ ACTION = os.environ.get("ACTION", "remonter")  # decouvrir | publier | remonter
 ANNONCES = [
     {
         "marque": "RED by SFR",
+        "cle": "red",
         "titre": "Jusqu'à 15 € offerts sur ta 1ère facture RED by SFR",
         "code": "REDB483D8F",
         "lien": "https://www.red-by-sfr.fr/?codeP=REDB483D8F",
@@ -23,6 +24,7 @@ ANNONCES = [
     },
     {
         "marque": "BoursoBank",
+        "cle": "bourso",
         "titre": "Jusqu'à 160 € offerts chez BoursoBank – ma prime va à une association",
         "code": "NAGA0360",
         "lien": "",
@@ -41,6 +43,7 @@ Code parrain : NAGA0360
     },
     {
         "marque": "Hello bank",
+        "cle": "hello",
         "titre": "Jusqu'à 330 € offerts chez Hello bank (offre flash jusqu'au 8 décembre)",
         "code": "",
         "lien": "",
@@ -59,6 +62,7 @@ Code parrain : NAGA0360
     },
     {
         "marque": "Acheel",
+        "cle": "acheel",
         "titre": "1 mois offert sur ton assurance Acheel avec le code NAGA0360",
         "code": "NAGA0360",
         "lien": "",
@@ -129,130 +133,77 @@ def call(tool, args):
     return bool(res and res.get("isError")), txt
 
 
-def find(tools, include, exclude=r"delete|supprim|remove|boost|pay|achat|premium|checkout|unpubl|d[ée]publi"):
-    out = []
-    for t in tools:
-        hay = (t["name"] + " " + (t.get("description") or "")).lower()
-        if re.search(include, t["name"].lower()) and not re.search(exclude, t["name"].lower()):
-            out.append(t)
-    if not out:
-        for t in tools:
-            hay = (t["name"] + " " + (t.get("description") or "")).lower()
-            if re.search(include, hay) and not re.search(exclude, t["name"].lower()):
-                out.append(t)
-    return out
 
-
-FIELD_MAP = [
-    (r"titre|title|headline|nom_annonce", "titre"),
-    (r"desc|texte|text|content|contenu|body|message|annonce", "texte"),
-    (r"lien|link|url", "lien"),
-    (r"code", "code"),
-    (r"marque|brand|merchant|marchand|enseigne|company|entreprise|offre|offer|program|programme|service|name|nom|query|slug", "marque"),
-]
-
-
-def build_args(tool, ad):
-    schema = tool.get("inputSchema") or {}
-    props = schema.get("properties") or {}
-    required = schema.get("required") or []
-    args, missing = {}, []
-    for p, spec in props.items():
-        val = None
-        for rx, key in FIELD_MAP:
-            if re.search(rx, p.lower()):
-                val = ad.get(key) or None
-                break
-        if val is not None:
-            if spec.get("type") == "array":
-                val = [val]
-            args[p] = val
-        elif p in required:
-            missing.append(p)
-    return args, missing
+def slug_candidates(text, cle):
+    found = []
+    pats = [r'slug["\']?\s*[:=]\s*["\']?([a-z0-9][a-z0-9-]*)',
+            r'/(?:programmes?|parrainages?|offres?|p|code-parrainage)/([a-z0-9][a-z0-9-]*)',
+            r'\(([a-z0-9][a-z0-9-]*)\)',
+            r'`([a-z0-9][a-z0-9-]*)`']
+    for p in pats:
+        for m in re.findall(p, text, re.I):
+            m = m.lower()
+            if m.startswith(cle) and m not in found:
+                found.append(m)
+    return found
 
 
 def main():
     if not URL:
         sys.exit("Secret LP_MCP_URL manquant.")
     print("Action :", ACTION)
+    if ACTION == "remonter":
+        print("Le Parrain ne propose pas de remontee via le connecteur : rien a faire.")
+        return
     rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                        "clientInfo": {"name": "robot-remontee", "version": "1.0"}})
     rpc("notifications/initialized", notify=True)
-    tools = (rpc("tools/list") or {}).get("tools", [])
-    print(f"{len(tools)} outil(s) Le Parrain :")
-    for t in tools:
-        req = (t.get("inputSchema") or {}).get("required") or []
-        props = list(((t.get("inputSchema") or {}).get("properties") or {}).keys())
-        print(f"  - {t['name']} {props} requis={req}")
-        print(f"      {(t.get('description') or '')[:300]}")
+    tools = {t["name"]: t for t in (rpc("tools/list") or {}).get("tools", [])}
+    print(f"{len(tools)} outil(s) Le Parrain.")
     if ACTION == "decouvrir":
+        for n in tools:
+            print(" -", n)
         return
+    for need in ("search_programs", "create_announcement"):
+        if need not in tools:
+            sys.exit(f"ECHEC : outil {need} absent.")
 
-    lister = find(tools, r"list|mes_annonces|my_|mine|get_annonces|annonces",
-                  exclude=r"delete|supprim|remove|create|cr[ée]|publi|add|ajout|update|edit|modif|bump|remont|boost")
-    existing = ""
-    for t in lister[:1]:
-        _, missing = build_args(t, {})
-        if not missing:
-            err, existing = call(t, {})
-            print(f"\nMes annonces actuelles ({t['name']}) :\n{existing[:2000]}")
-
-    if ACTION == "publier":
-        creer = find(tools, r"create|creer|cr[ée]er|publi|post|add|ajout|new|nouvelle")
-        if not creer:
-            sys.exit("ECHEC : aucun outil de publication trouve (voir la liste ci-dessus).")
-        t = creer[0]
-        print(f"\nOutil de publication : {t['name']}")
-        ok = tried = 0
-        for ad in ANNONCES:
-            low = existing.lower()
-            if (ad["code"] and ad["code"].lower() in low) or ad["marque"].lower() in low:
-                print(f"- {ad['marque']} : deja publiee, ignoree.")
-                continue
-            args, missing = build_args(t, ad)
-            if missing:
-                print(f"- {ad['marque']} : champs requis non reconnus {missing}, annonce NON publiee.")
-                continue
-            tried += 1
-            err, txt = call(t, args)
-            print(f"- {ad['marque']} : {'ERREUR' if err else 'publiee'} -> {txt[:400]}")
-            ok += 0 if err else 1
-        if tried and ok == 0:
-            sys.exit("Aucune annonce publiee (voir details ci-dessus).")
-
-    if ACTION in ("publier", "remonter"):
-        remonter = find(tools, r"bump|remont|refresh|up$|_up|top|rafraich|actualis")
-        if not remonter:
-            print("\nAucun outil de remontee disponible.")
-            if ACTION == "remonter":
-                sys.exit(1)
-            return
-        t = remonter[0]
-        print(f"\nOutil de remontee : {t['name']}")
-        props = ((t.get("inputSchema") or {}).get("properties") or {})
-        required = (t.get("inputSchema") or {}).get("required") or []
-        id_field = next((p for p in props if re.search(r"id", p.lower())), None)
-        if not required:
-            err, txt = call(t, {})
-            print(("ERREUR" if err else "OK"), "->", txt[:600])
-            if err:
-                sys.exit(1)
-            return
-        if id_field and id_field in required:
-            err, existing = call(lister[0], {}) if lister else (True, "")
-            ids = list(dict.fromkeys(re.findall(r'"(?:id|annonce_id|listing_id)"\s*:\s*"?([\w-]+)"?', existing)))
-            if not ids:
-                sys.exit("ECHEC : impossible de trouver les identifiants de tes annonces.")
-            fails = 0
-            for i in ids:
-                err, txt = call(t, {id_field: i})
-                print(f"- annonce {i} : {'ERREUR' if err else 'OK'} -> {txt[:300]}")
-                fails += err
-            if fails == len(ids):
-                sys.exit(1)
-            return
-        sys.exit(f"ECHEC : parametres requis non reconnus pour {t['name']} : {required}")
+    ok = 0
+    for ad in ANNONCES:
+        print(f"\n=== {ad['marque']}")
+        err, res = call(tools["search_programs"], {"query": ad["marque"]})
+        print("Recherche :", res[:700].replace("\n", " | "))
+        cands = slug_candidates(res, ad["cle"])
+        guess = re.sub(r"[^a-z0-9]+", "-", ad["marque"].lower()).strip("-")
+        for g in (guess, guess.replace("-", "")):
+            if g.startswith(ad["cle"]) and g not in cands:
+                cands.append(g)
+        print("Identifiants possibles :", cands)
+        done = False
+        for slug in cands[:4]:
+            args = {"program": slug, "title": ad["titre"], "content": ad["texte"]}
+            if ad["lien"]:
+                args["referral_url"] = ad["lien"]
+            if ad["code"]:
+                args["referral_code"] = ad["code"]
+            err, txt = call(tools["create_announcement"], args)
+            low = txt.lower()
+            if not err and "introuvable" not in low:
+                print(f"PUBLIEE ({slug}) -> {txt[:300]}")
+                ok += 1
+                done = True
+                break
+            if re.search(r"d[ée]j[àa]|existe d[ée]j|already", low) and not re.search(r"introuvable|n'existe pas", low):
+                print(f"Deja publiee ({slug}) -> {txt[:200]}")
+                ok += 1
+                done = True
+                break
+            print(f"  {slug} : {txt[:200]}")
+        if not done:
+            print(f"NON publiee : programme {ad['marque']} non trouve dans l'annuaire Le Parrain.")
+    print(f"\nTermine : {ok}/{len(ANNONCES)} annonce(s) en ligne.")
+    if ok == 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
