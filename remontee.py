@@ -1,0 +1,287 @@
+import os, re, sys
+from urllib.parse import urljoin, urlparse
+from playwright.sync_api import sync_playwright
+
+BASE = os.environ.get("P_BASE", "https://www.1parrainage.com/")
+EMAIL = os.environ.get("P_EMAIL", "")
+PASSWORD = os.environ.get("P_PASSWORD", "")
+MODE = os.environ.get("MODE", "manuel")  # manuel | premium
+SHOTS = "captures"
+os.makedirs(SHOTS, exist_ok=True)
+step = 0
+
+
+def shot(page, name):
+    global step
+    step += 1
+    try:
+        page.screenshot(path=f"{SHOTS}/{step:02d}_{name}.png", full_page=True)
+    except Exception as e:
+        print("capture impossible:", e)
+
+
+def settle(page):
+    try:
+        page.wait_for_load_state("networkidle", timeout=15000)
+    except Exception:
+        pass
+
+
+def click_first(page, patterns, roles=("link", "button")):
+    for pat in patterns:
+        rx = re.compile(pat, re.I)
+        for role in roles:
+            loc = page.get_by_role(role, name=rx)
+            for i in range(loc.count()):
+                el = loc.nth(i)
+                if el.is_visible():
+                    el.click()
+                    settle(page)
+                    return True
+    return False
+
+
+def refuse_cookies(page):
+    # Choix le plus respectueux de la vie privee
+    click_first(page, [r"continuer sans accepter", r"tout refuser", r"^refuser",
+                       r"je refuse", r"fermer"], roles=("button", "link"))
+
+
+def password_field(page):
+    loc = page.locator("input[type=password]")
+    for i in range(loc.count()):
+        if loc.nth(i).is_visible():
+            return loc.nth(i)
+    return None
+
+
+def login(page):
+    page.goto(BASE)
+    settle(page)
+    refuse_cookies(page)
+    shot(page, "accueil")
+    if not password_field(page):
+        click_first(page, [r"se connecter", r"connexion", r"me connecter",
+                           r"espace parrain", r"mon compte", r"mon espace"])
+        refuse_cookies(page)
+    pw = password_field(page)
+    if not pw:
+        shot(page, "pas_de_formulaire")
+        sys.exit("ECHEC : formulaire de connexion introuvable (voir captures).")
+    form = pw.locator("xpath=ancestor::form[1]")
+    scope = form if form.count() else page
+    user = scope.locator("input[type=email], input[type=text]")
+    filled = False
+    for i in range(user.count()):
+        if user.nth(i).is_visible():
+            user.nth(i).fill(EMAIL)
+            filled = True
+            break
+    if not filled:
+        sys.exit("ECHEC : champ e-mail/pseudo introuvable.")
+    pw.fill(PASSWORD)
+    shot(page, "formulaire_rempli")
+    pw.press("Enter")
+    settle(page)
+    page.wait_for_timeout(2000)
+    shot(page, "apres_connexion")
+    if password_field(page) and not page.get_by_text(re.compile(r"d[ée]connexion", re.I)).count():
+        sys.exit("ECHEC : connexion refusee (identifiants, captcha ?). Voir captures.")
+    print("Connecte.")
+
+
+def open_account(page):
+    if not click_first(page, [r"espace parrain", r"mes annonces", r"mon espace",
+                              r"mon compte", r"tableau de bord"]):
+        shot(page, "espace_introuvable")
+        sys.exit("ECHEC : lien vers l'espace parrain introuvable.")
+    refuse_cookies(page)
+    # Si une page intermediaire existe, aller sur la liste des annonces
+    click_first(page, [r"^mes annonces", r"g[ée]rer mes annonces"])
+    shot(page, "espace_parrain")
+    return page.url
+
+
+def edit_links(page):
+    hrefs = []
+    rx = re.compile(r"modifier|[ée]diter", re.I)
+    links = page.locator("a")
+    for i in range(links.count()):
+        a = links.nth(i)
+        try:
+            href = a.get_attribute("href") or ""
+            label = (a.inner_text() or "") + " " + (a.get_attribute("title") or "")
+        except Exception:
+            continue
+        if not href or href.startswith(("javascript", "#", "mailto")):
+            continue
+        if re.search(r"supprim|delete|profil|password|mot.?de.?passe|photo", href + label, re.I):
+            continue
+        if rx.search(label) or re.search(r"modif|edit", href, re.I):
+            full = urljoin(page.url, href)
+            if full not in hrefs:
+                hrefs.append(full)
+    return hrefs
+
+
+RX_OK = re.compile(r"enregistr|valid|modifi|[àa] jour|sauv|publi|remont|envoy|confirm|soumettre|update|save|submit|^\s*ok\s*$", re.I)
+RX_BAD = re.compile(r"supprim|annul|delete|retour|d[ée]connex|recherch|search|connexion|newsletter|cookie|refus|accept", re.I)
+diag_done = False
+
+
+def label_of(el):
+    try:
+        return " ".join(filter(None, [
+            el.inner_text(timeout=2000) if el.evaluate("e => e.tagName") != "INPUT" else "",
+            el.get_attribute("value"), el.get_attribute("title"),
+            el.get_attribute("aria-label"), el.get_attribute("name"),
+            el.get_attribute("id"), el.get_attribute("class")])).strip()
+    except Exception:
+        return ""
+
+
+def submit_edit(page):
+    global diag_done
+    sel = ("button, input[type=submit], input[type=button], input[type=image], "
+           "a.btn, a.button, [role=button]")
+    cands = page.locator(sel)
+    labels = []
+    best = None
+    for i in range(cands.count()):
+        b = cands.nth(i)
+        try:
+            if not b.is_visible():
+                continue
+        except Exception:
+            continue
+        label = label_of(b)
+        labels.append(label[:60])
+        if best is None and label and not RX_BAD.search(label) and RX_OK.search(label):
+            best = b
+    if not diag_done:
+        diag_done = True
+        print("  Boutons vus sur la page :", " | ".join(labels) or "aucun")
+    if best is not None:
+        print("  -> clic sur :", label_of(best)[:60])
+        best.click()
+    else:
+        # Repli : envoyer le formulaire principal de la page (celui qui a le plus de champs)
+        idx = page.evaluate("""() => {
+            const bad = /supprim|delete|recherche|search|login|connexion|logout|newsletter/i;
+            let best = -1, max = 0;
+            document.querySelectorAll('form').forEach((f, i) => {
+                if (bad.test((f.action || '') + ' ' + (f.id || '') + ' ' + (f.className || ''))) return;
+                const n = f.querySelectorAll('input:not([type=hidden]), textarea, select').length;
+                if (n > max) { max = n; best = i; }
+            });
+            return max >= 2 ? best : -1;
+        }""")
+        if idx < 0:
+            return False
+        print("  -> envoi direct du formulaire principal")
+        page.evaluate("""(i) => {
+            const f = document.querySelectorAll('form')[i];
+            const s = f.querySelector('button[type=submit], input[type=submit], button:not([type])');
+            if (f.requestSubmit) f.requestSubmit(s || undefined); else f.submit();
+        }""", idx)
+    settle(page)
+    page.wait_for_timeout(1500)
+    return True
+
+
+def same_area(url, base):
+    return urlparse(url).path.startswith(base)
+
+
+def next_page_url(page, seen, base):
+    rx = re.compile(r"^\s*(suivant|suiv\.?|page suivante|next|»|›|>|>>)\s*$", re.I)
+    cands = page.locator("a[rel=next], .pagination a, nav a, a")
+    for i in range(min(cands.count(), 400)):
+        a = cands.nth(i)
+        try:
+            href = a.get_attribute("href") or ""
+            label = ((a.inner_text() or "") + " " + (a.get_attribute("aria-label") or "")).strip()
+            rel = a.get_attribute("rel") or ""
+        except Exception:
+            continue
+        if not href or href.startswith(("javascript", "#", "mailto")):
+            continue
+        full = urljoin(page.url, href)
+        if full in seen or not same_area(full, base):
+            continue
+        if "next" in rel.lower() or rx.match(label) or re.search(r"suivant|next", label, re.I) and "page" in full.lower():
+            return full
+    return None
+
+
+def all_edit_links(page):
+    parts = [x for x in urlparse(page.url).path.split("/") if x]
+    base = "/" + parts[0] if parts else "/"
+    links, seen = [], {page.url}
+    for n in range(1, 16):
+        for l in edit_links(page):
+            if l not in links and same_area(l, base):
+                links.append(l)
+        nxt = next_page_url(page, seen, base)
+        if not nxt:
+            break
+        seen.add(nxt)
+        print(f"  Page {n + 1} de l'espace parrain...")
+        page.goto(nxt)
+        settle(page)
+    return links
+
+
+def manual_bump(page, account_url):
+    links = all_edit_links(page)
+    print(f"{len(links)} annonce(s) a remonter.")
+    if not links:
+        sys.exit("ECHEC : aucun lien 'Modifier' trouve dans l'espace parrain.")
+    ok = 0
+    for n, url in enumerate(links, 1):
+        page.goto(url)
+        settle(page)
+        if submit_edit(page):
+            ok += 1
+            msg = page.locator("body").inner_text()[:3000]
+            alert = re.search(r"[^.\n]*(limite|d[ée]j[àa]|maximum|erreur)[^.\n]*", msg, re.I)
+            print(f"Annonce {n} : enregistree." + (f" Message du site : {alert.group(0).strip()}" if alert else ""))
+        else:
+            print(f"Annonce {n} : bouton d'enregistrement introuvable ({url}).")
+        shot(page, f"annonce_{n}")
+    print(f"Termine : {ok}/{len(links)} annonce(s) remontee(s).")
+    if ok == 0:
+        sys.exit(1)
+
+
+def premium_bump(page):
+    if click_first(page, [r"remonter toutes", r"tout remonter", r"remonter mes annonces",
+                          r"bouton magique", r"remont"]):
+        page.wait_for_timeout(1500)
+        shot(page, "bouton_magique")
+        print("Bouton Premium clique.")
+    else:
+        sys.exit("ECHEC : bouton de remontee Premium introuvable (compte Premium ?).")
+
+
+def main():
+    if not EMAIL or not PASSWORD:
+        sys.exit("Secrets P_EMAIL / P_PASSWORD manquants.")
+    print("Mode :", MODE)
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(locale="fr-FR", viewport={"width": 1280, "height": 900})
+        page.set_default_timeout(20000)
+        try:
+            login(page)
+            account_url = open_account(page)
+            if MODE == "premium":
+                premium_bump(page)
+            else:
+                manual_bump(page, account_url)
+        finally:
+            browser.close()
+
+
+if __name__ == "__main__":
+    main()
