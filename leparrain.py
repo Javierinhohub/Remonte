@@ -136,6 +136,49 @@ Code parrain : NAGA0360
 
 💬 Besoin d'aide pour démarrer ? Écris-moi, je réponds vite.""",
     },
+    {
+        "marque": "Nature Dog",
+        "cle": "nature",
+        "titre": "5 € offerts sur ta 1ère commande Nature Dog",
+        "code": "0810008805",
+        "lien": "https://www.naturedog.fr/?s=0810008805",
+        "texte": """🐾 5 € OFFERTS sur ta 1ère commande Nature Dog !
+
+Code parrain : 0810008805
+
+✅ Croquettes, friandises et accessoires pour chiens et chats
+✅ Aussi des rayons chasse, équitation, montagne et randonnée
+✅ Livraison offerte dès 99 € d'achat
+
+👉 Comment en profiter :
+1. Clique sur mon lien : https://www.naturedog.fr/?s=0810008805 (accepte les cookies pour que le parrainage soit bien pris en compte)
+2. Ou saisis le code 0810008805 à ton inscription
+3. Tes 5 € sont déduits après validation de ton panier !
+
+💬 Une question ? Écris-moi, je réponds vite. À bientôt 🐶""",
+    },
+    {
+        "marque": "Greenweez",
+        "cle": "greenweez",
+        "titre": "Jusqu'à 10 € offerts sur ta 1ère commande Greenweez",
+        "code": "W2CNEHIC",
+        "lien": "",
+        "texte": """🌱 Jusqu'à 10 € OFFERTS sur ta 1ère commande Greenweez !
+
+Code parrain : W2CNEHIC
+
+✅ Le spécialiste du bio en ligne : épicerie, hygiène, beauté, maison écolo
+✅ Plein de produits éco-responsables introuvables en supermarché
+
+👉 Comment en profiter :
+1. Crée ton compte sur Greenweez
+2. Saisis le code W2CNEHIC dans la case « code parrain » à l'inscription
+3. Ta réduction est créditée dans ta cagnotte : commande vite, elle n'est valable que quelques jours !
+
+💡 Montant et minimum de commande selon l'offre du moment, affichés au paiement.
+
+💬 Une question ? Écris-moi, je réponds vite. À très bientôt sur le site 🌿""",
+    },
 ]
 
 session = None
