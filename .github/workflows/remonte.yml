@@ -3,8 +3,6 @@
 name: Remontee 1parrainage
 
 on:
-  schedule:
-    - cron: "7,37 7-20 * * *"
   workflow_dispatch:
 
 permissions:
